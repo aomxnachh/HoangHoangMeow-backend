@@ -1,6 +1,3 @@
-// Token signing / verification and password hashing helpers.
-// Uses Node's built-in crypto (scrypt + HMAC-SHA256) — no external JWT lib.
-
 import {
   createHmac,
   randomBytes,
@@ -70,12 +67,10 @@ export async function passwordMatches(password: string, stored: string) {
   );
 }
 
-// Produces a non-reversible hash for storing/looking up password-reset tokens.
 export function hashResetToken(token: string) {
   return createHmac("sha256", AUTH_SECRET).update(token).digest("hex");
 }
 
-// Strips sensitive fields before returning a user to the client.
 export function publicUser(user: User) {
   return {
     id: user.id,

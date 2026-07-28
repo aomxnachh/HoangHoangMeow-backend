@@ -1,7 +1,3 @@
-// HoangHoangMeow backend entry point.
-// Wires global middleware (CORS, error handler), public health routes, and the
-// feature route modules, then starts the Hono server.
-
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
@@ -22,7 +18,6 @@ import { userRoutes } from "./routes/user.routes.js";
 
 const app = new Hono<AppEnv>();
 
-// ----- Global middleware -----
 app.use(
   "*",
   cors({
@@ -37,7 +32,6 @@ app.onError((error, c) => {
   return c.json({ error: "เกิดข้อผิดพลาดในระบบ" }, 500);
 });
 
-// ----- Public health/info routes -----
 app.get("/", (c) => c.json({ message: "HoangHoangMeow backend is running" }));
 app.get("/api/health", (c) => c.json({ status: "ok" }));
 app.get("/api/db-check", async (c) => {
@@ -49,7 +43,6 @@ app.get("/api/db-check", async (c) => {
   }
 });
 
-// ----- Feature routes -----
 app.route("/", authRoutes);
 app.route("/", userRoutes);
 app.route("/", petRoutes);
@@ -61,11 +54,9 @@ app.route("/", adRoutes);
 app.route("/", billingRoutes);
 app.route("/", adminRoutes);
 
-// ----- Server start -----
 serve({ fetch: app.fetch, port: PORT });
 console.log(`Backend running on port ${PORT}`);
-
-// ----- Auto-seed sample ads if none exist -----
+//Mock up adsssssssssssssss
 (async () => {
   try {
     const existingAds = await db.select({ id: ads.id }).from(ads).limit(1);

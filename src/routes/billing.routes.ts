@@ -33,7 +33,7 @@ billingRoutes.post("/api/billing/checkout", async (c) => {
   if (!PAYMENT_CHECKOUT_URL)
     return c.json(
       {
-        error: "ยังไม่ได้ตั้งค่า Payment Provider สำหรับการชำระด้วยบัตร",
+        error: "Error",
         code: "PAYMENT_NOT_CONFIGURED",
       },
       503,

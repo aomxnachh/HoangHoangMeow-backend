@@ -1,9 +1,3 @@
-// Reminders & appointments (FR4.1–4.5). Activities with entryType REMINDER.
-//   - Custom date/time creation (FR4.3)
-//   - "Done" saves a health record + schedules next cycle (FR4.4)
-//   - "Snooze" reschedules; reminder stays pending until done (FR4.5)
-//   - Optional advance reminder (reminderMinutes) (FR4.2)
-
 import { and, asc, eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { db } from "../db/index.js";
@@ -42,7 +36,6 @@ reminderRoutes.get("/api/reminders", async (c) => {
   return c.json({ reminders: rows });
 });
 
-// Create a reminder with a custom scheduled date/time (FR4.3).
 reminderRoutes.post("/api/reminders", async (c) => {
   const user = await requireUser(c);
   if (!user) return unauthorized(c);
@@ -79,8 +72,6 @@ reminderRoutes.post("/api/reminders", async (c) => {
   return c.json({ reminder }, 201);
 });
 
-// "Done" — records the event into the health timeline and schedules the next
-// recurrence automatically (FR4.4).
 reminderRoutes.post("/api/reminders/:id/done", async (c) => {
   const user = await requireUser(c);
   if (!user) return unauthorized(c);
@@ -137,7 +128,6 @@ reminderRoutes.post("/api/reminders/:id/done", async (c) => {
   return c.json({ message: "บันทึกประวัติและอัปเดตกำหนดการแล้ว" });
 });
 
-// "Snooze" — user picks a new time; reminder stays PENDING until done (FR4.5).
 reminderRoutes.post("/api/reminders/:id/snooze", async (c) => {
   const user = await requireUser(c);
   if (!user) return unauthorized(c);

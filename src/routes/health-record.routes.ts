@@ -1,6 +1,3 @@
-// Health records timeline (FR3.1, FR3.2). Activities with entryType
-// HEALTH_RECORD store vaccine history, illness, treatments and medication.
-
 import { and, desc, eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { db } from "../db/index.js";
@@ -15,7 +12,6 @@ import { asText, isDateString, toNumber } from "../utils/helpers.js";
 
 export const healthRecordRoutes = new Hono<AppEnv>();
 
-// Timeline ordered newest-first; optional ?petId filter.
 healthRecordRoutes.get("/api/health-records", async (c) => {
   const user = await requireUser(c);
   if (!user) return unauthorized(c);

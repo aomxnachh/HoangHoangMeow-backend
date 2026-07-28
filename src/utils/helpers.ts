@@ -34,10 +34,8 @@ export const petEmoji = (species: string) => {
   return "🐱";
 };
 
-// Validates a YYYY-MM-DD string.
 export const isDateString = (value: string) =>
   /^\d{4}-\d{2}-\d{2}$/.test(value);
 
-// Adds the given number of days to a date and returns a new Date.
 export const addDays = (date: Date, days: number) =>
   new Date(date.valueOf() + days * 86_400_000);

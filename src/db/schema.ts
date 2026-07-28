@@ -82,7 +82,6 @@ export const payments = pgTable('payment', {
 	updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
 
-// Health records and reminders use one timeline table. entryType distinguishes their behaviour.
 export const activities = pgTable('activity', {
 	id: serial('id').primaryKey(),
 	petId: integer('pet_id').notNull().references(() => pets.petId, { onDelete: 'cascade' }),

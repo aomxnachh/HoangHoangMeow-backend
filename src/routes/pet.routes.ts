@@ -1,6 +1,3 @@
-// Pet profile CRUD + search/filter (FR2.1, FR2.2, FR2.3).
-// Free plan is limited to 3 pets on creation (FR5.1).
-
 import { eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { db } from "../db/index.js";
@@ -16,10 +13,6 @@ import { apiPet, findOrCreateCategory, petList } from "./_shared.js";
 
 export const petRoutes = new Hono<AppEnv>();
 
-// List pets. Supports optional search/filter query params:
-//   ?search=  name substring (case-insensitive)
-//   ?species= exact species match
-//   ?gender=  MALE | FEMALE | UNKNOWN
 petRoutes.get("/api/pets", async (c) => {
   const user = await requireUser(c);
   if (!user) return unauthorized(c);
@@ -163,7 +156,6 @@ petRoutes.delete("/api/pets/:id", async (c) => {
   const id = Number(c.req.param("id"));
   if (!(await ownedPet(user.id, id)))
     return c.json({ error: "ไม่พบสัตว์เลี้ยง" }, 404);
-  // Related activities/expenses/care-plans cascade-delete via FK onDelete.
   await db.delete(pets).where(eq(pets.petId, id));
   return c.body(null, 204);
 });

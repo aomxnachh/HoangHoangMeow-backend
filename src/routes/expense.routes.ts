@@ -1,4 +1,4 @@
-import { and, asc, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, isNotNull } from "drizzle-orm";
 import { Hono } from "hono";
 import { db } from "../db/index.js";
 import { activities, expenses, pets } from "../db/schema.js";
@@ -22,21 +22,49 @@ export const expenseRoutes = new Hono<AppEnv>();
 expenseRoutes.get("/api/expenses", async (c) => {
   const user = await requireUser(c);
   if (!user) return unauthorized(c);
-  const rows = await db
-    .select({
-      id: expenses.id,
-      petId: expenses.petId,
-      petName: pets.name,
-      category: expenses.category,
-      description: expenses.description,
-      date: expenses.date,
-      amount: expenses.amount,
-    })
-    .from(expenses)
-    .innerJoin(pets, eq(expenses.petId, pets.petId))
-    .where(eq(pets.userId, user.id))
-    .orderBy(desc(expenses.date));
-  return c.json({ expenses: rows });
+  const [expenseRows, healthRows] = await Promise.all([
+    db
+      .select({
+        id: expenses.id,
+        petId: expenses.petId,
+        petName: pets.name,
+        category: expenses.category,
+        description: expenses.description,
+        date: expenses.date,
+        amount: expenses.amount,
+      })
+      .from(expenses)
+      .innerJoin(pets, eq(expenses.petId, pets.petId))
+      .where(eq(pets.userId, user.id)),
+    db
+      .select({
+        id: activities.id,
+        petId: activities.petId,
+        petName: pets.name,
+        category: activities.activityType,
+        description: activities.title,
+        date: activities.activityDate,
+        amount: activities.cost,
+      })
+      .from(activities)
+      .innerJoin(pets, eq(activities.petId, pets.petId))
+      .where(
+        and(
+          eq(pets.userId, user.id),
+          eq(activities.entryType, "HEALTH_RECORD"),
+          isNotNull(activities.cost)
+        )
+      )
+  ]);
+
+  const combined = [
+    ...expenseRows.map((r) => ({ ...r, id: `exp-${r.id}` })),
+    ...healthRows
+      .filter((r) => Number(r.amount) > 0)
+      .map((r) => ({ ...r, id: `hr-${r.id}` })),
+  ].sort((a, b) => b.date.localeCompare(a.date));
+
+  return c.json({ expenses: combined });
 });
 
 expenseRoutes.post("/api/expenses", async (c) => {
@@ -71,21 +99,36 @@ expenseRoutes.post("/api/expenses", async (c) => {
 expenseRoutes.delete("/api/expenses/:id", async (c) => {
   const user = await requireUser(c);
   if (!user) return unauthorized(c);
-  const id = Number(c.req.param("id"));
-  const [expense] = await db
-    .select({ id: expenses.id })
-    .from(expenses)
-    .innerJoin(pets, eq(expenses.petId, pets.petId))
-    .where(and(eq(expenses.id, id), eq(pets.userId, user.id)));
-  if (!expense) return c.json({ error: "ไม่พบรายการ" }, 404);
-  await db.delete(expenses).where(eq(expenses.id, id));
+  const idParam = c.req.param("id");
+  
+  if (idParam.startsWith("hr-")) {
+    const id = Number(idParam.replace("hr-", ""));
+    const [record] = await db
+      .select({ id: activities.id })
+      .from(activities)
+      .innerJoin(pets, eq(activities.petId, pets.petId))
+      .where(and(eq(activities.id, id), eq(pets.userId, user.id)));
+    if (!record) return c.json({ error: "ไม่พบรายการ" }, 404);
+    await db.delete(activities).where(eq(activities.id, id));
+  } else {
+    const id = Number(idParam.replace("exp-", ""));
+    const [expense] = await db
+      .select({ id: expenses.id })
+      .from(expenses)
+      .innerJoin(pets, eq(expenses.petId, pets.petId))
+      .where(and(eq(expenses.id, id), eq(pets.userId, user.id)));
+    if (!expense) return c.json({ error: "ไม่พบรายการ" }, 404);
+    await db.delete(expenses).where(eq(expenses.id, id));
+  }
   return c.body(null, 204);
 });
 
 expenseRoutes.patch("/api/expenses/:id", async (c) => {
   const user = await requireUser(c);
   if (!user) return unauthorized(c);
-  const id = Number(c.req.param("id"));
+  const idParam = c.req.param("id");
+  if (idParam.startsWith("hr-")) return c.json({ error: "ไม่สามารถแก้ไขรายการบันทึกสุขภาพจากหน้านี้ได้" }, 400);
+  const id = Number(idParam.replace("exp-", ""));
   const [existing] = await db
     .select({ id: expenses.id })
     .from(expenses)
@@ -115,73 +158,72 @@ expenseRoutes.get("/api/expenses/estimate", async (c) => {
   const user = await requireUser(c);
   if (!user) return unauthorized(c);
   const petId = Number(c.req.query("petId")) || null;
-  const rows = await db
-    .select({
-      category: expenses.category,
-      amount: expenses.amount,
-      date: expenses.date,
-    })
-    .from(expenses)
-    .innerJoin(pets, eq(expenses.petId, pets.petId))
-    .where(
-      and(
-        eq(pets.userId, user.id),
-        ...(petId ? [eq(expenses.petId, petId)] : []),
+  const [expenseRows, healthRows] = await Promise.all([
+    db
+      .select({
+        category: expenses.category,
+        amount: expenses.amount,
+        date: expenses.date,
+      })
+      .from(expenses)
+      .innerJoin(pets, eq(expenses.petId, pets.petId))
+      .where(
+        and(
+          eq(pets.userId, user.id),
+          ...(petId ? [eq(expenses.petId, petId)] : []),
+        ),
       ),
-    );
+    db
+      .select({
+        category: activities.activityType,
+        amount: activities.cost,
+        date: activities.activityDate,
+      })
+      .from(activities)
+      .innerJoin(pets, eq(activities.petId, pets.petId))
+      .where(
+        and(
+          eq(pets.userId, user.id),
+          eq(activities.entryType, "HEALTH_RECORD"),
+          isNotNull(activities.cost),
+          ...(petId ? [eq(activities.petId, petId)] : []),
+        ),
+      ),
+  ]);
 
-  const twelveMonthsAgo = new Date();
-  twelveMonthsAgo.setFullYear(twelveMonthsAgo.getFullYear() - 1);
-  const windowStart = twelveMonthsAgo.toISOString().slice(0, 10);
+  const rows = [...expenseRows, ...healthRows].filter((r) => Number(r.amount) > 0);
 
-  const stats = new Map<
-    string,
-    { total: number; count: number; lastDate: string; firstDate: string }
-  >();
-  for (const row of rows) {
-    const stat = stats.get(row.category) || {
-      total: 0,
-      count: 0,
-      lastDate: "",
-      firstDate: "9999-99-99",
-    };
-    stat.total += Number(row.amount);
-    stat.count += 1;
-    if (row.date > stat.lastDate) stat.lastDate = row.date;
-    if (row.date < stat.firstDate) stat.firstDate = row.date;
-    stats.set(row.category, stat);
-  }
+  const vaccineTotal = rows
+    .filter((r) => /วัคซีน|vaccin/i.test(r.category))
+    .reduce((sum, r) => sum + Number(r.amount), 0);
+    
+  const checkupTotal = rows
+    .filter((r) => /ตรวจสุขภาพ|ตรวจ|checkup|health/i.test(r.category))
+    .reduce((sum, r) => sum + Number(r.amount), 0);
+    
+  const generalTotal = rows
+    .filter((r) => !/วัคซีน|vaccin|ตรวจสุขภาพ|ตรวจ|checkup|health/i.test(r.category))
+    .reduce((sum, r) => sum + Number(r.amount), 0);
 
-  let totalEstimate = 0;
-  const estimates = [...stats.entries()].map(([category, stat]) => {
-    const monthsSpanned = Math.max(
-      1,
-      monthsBetween(stat.firstDate, stat.lastDate),
-    );
-    const recentRecords = rows.filter(
-      (r) => r.category === category && r.date >= windowStart,
-    );
-    const recentAvg =
-      recentRecords.length > 0
-        ? recentRecords.reduce((sum, r) => sum + Number(r.amount), 0) /
-          recentRecords.length
-        : stat.total / stat.count;
-    const avgCost = Math.round(recentAvg);
-    const projectedMonthly = Math.round(
-      category === "ค่ารักษาพยาบาล" || /รักษ|พยาบาล|vet|medical/i.test(category)
-        ? recentAvg
-        : (stat.total / monthsSpanned),
-    );
-    totalEstimate += projectedMonthly;
-    return {
-      category,
-      avgCost,
-      projectedMonthly,
-      lastDate: stat.lastDate,
-      count: stat.count,
-    };
-  });
-  return c.json({ estimates, totalEstimate });
+  const estimates = [
+    {
+      name: "ค่าวัคซีนประจำปี",
+      description: "ประมาณการจากประวัติการฉีดวัคซีน",
+      cost: vaccineTotal > 0 ? vaccineTotal : 1000,
+    },
+    {
+      name: "ค่าตรวจสุขภาพ",
+      description: "แนะนำตรวจเลือดและสุขภาพทั่วไปปีละ 1 ครั้ง",
+      cost: checkupTotal > 0 ? checkupTotal : 1500,
+    },
+    {
+      name: "ค่ารักษาพยาบาลและอื่นๆ",
+      description: "ค่าใช้จ่ายยา อาหารเสริม หรือเหตุฉุกเฉิน",
+      cost: generalTotal > 0 ? Math.round(generalTotal * 0.2) : 2000,
+    }
+  ];
+
+  return c.json({ estimates });
 });
 
 expenseRoutes.get("/api/dashboard", async (c) => {
@@ -189,16 +231,34 @@ expenseRoutes.get("/api/dashboard", async (c) => {
   if (!user) return unauthorized(c);
   const [allPets, allExpenses, reminders] = await Promise.all([
     petList(user.id),
-    db
-      .select({
-        category: expenses.category,
-        amount: expenses.amount,
-        date: expenses.date,
-        petId: expenses.petId,
-      })
-      .from(expenses)
-      .innerJoin(pets, eq(expenses.petId, pets.petId))
-      .where(eq(pets.userId, user.id)),
+    Promise.all([
+      db
+        .select({
+          category: expenses.category,
+          amount: expenses.amount,
+          date: expenses.date,
+          petId: expenses.petId,
+        })
+        .from(expenses)
+        .innerJoin(pets, eq(expenses.petId, pets.petId))
+        .where(eq(pets.userId, user.id)),
+      db
+        .select({
+          category: activities.activityType,
+          amount: activities.cost,
+          date: activities.activityDate,
+          petId: activities.petId,
+        })
+        .from(activities)
+        .innerJoin(pets, eq(activities.petId, pets.petId))
+        .where(
+          and(
+            eq(pets.userId, user.id),
+            eq(activities.entryType, "HEALTH_RECORD"),
+            isNotNull(activities.cost)
+          )
+        )
+    ]).then(([e, h]) => [...e, ...h].filter((r) => Number(r.amount) > 0)),
     db
       .select({
         id: activities.id,

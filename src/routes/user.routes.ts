@@ -1,5 +1,3 @@
-// Current-user routes: profile read/update, change password, delete account.
-
 import { eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { db } from "../db/index.js";
@@ -38,8 +36,7 @@ userRoutes.patch("/api/me", async (c) => {
     .returning();
   return c.json({ user: publicUser(updated) });
 });
-
-// Change password (requires the current password for safety).
+//Change pass
 userRoutes.post("/api/me/change-password", async (c) => {
   const user = await requireUser(c);
   if (!user) return unauthorized(c);
@@ -62,10 +59,7 @@ userRoutes.post("/api/me/change-password", async (c) => {
     .where(eq(users.id, user.id));
   return c.json({ message: "เปลี่ยนรหัสผ่านเรียบร้อยแล้ว" });
 });
-
-// Soft-delete: marks deletedAt so the row (and FK-linked pets/records) are
-// retained for audit. `requireUser` already rejects deletedAt users, so the
-// existing token is effectively invalidated for future requests.
+//Delete
 userRoutes.delete("/api/me", async (c) => {
   const user = await requireUser(c);
   if (!user) return unauthorized(c);
