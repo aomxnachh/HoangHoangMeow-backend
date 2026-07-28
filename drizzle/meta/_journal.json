@@ -1,0 +1,27 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1784014139471,
+      "tag": "0000_mysterious_daredevil",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1784610000000,
+      "tag": "0001_application_features",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1785201997931,
+      "tag": "0002_social_provider_ids",
+      "breakpoints": true
+    }
+  ]
+}
