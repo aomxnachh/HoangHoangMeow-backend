@@ -15,38 +15,18 @@ adRoutes.get("/api/ads", async (c) => {
   if (!user) return unauthorized(c);
   if (user.planType === "PREMIUM") return c.json({ ads: [] });
 
-  const requestedCategoryId = c.req.query("petCategoryId");
-  const petCategoryId =
-    requestedCategoryId === undefined ? null : Number(requestedCategoryId);
-  if (
-    petCategoryId !== null &&
-    (!Number.isInteger(petCategoryId) || petCategoryId <= 0)
-  )
-    return c.json({ error: "petCategoryId must be a positive integer" }, 400);
-
+  // Check user has at least one pet
   const [pet] = await db
-    .select({ categoryId: pets.petCategoryId })
+    .select({ id: pets.petId })
     .from(pets)
-    .where(
-      petCategoryId === null
-        ? eq(pets.userId, user.id)
-        : and(eq(pets.userId, user.id), eq(pets.petCategoryId, petCategoryId)),
-    )
+    .where(eq(pets.userId, user.id))
     .limit(1);
-  if (!pet)
-    return petCategoryId === null
-      ? c.json({ ads: [] })
-      : c.json({ error: "pet category not found" }, 404);
+  if (!pet) return c.json({ ads: [] });
 
   const result = await db
     .select()
     .from(ads)
-    .where(
-      and(
-        eq(ads.isActive, true),
-        eq(ads.petCategoryId, pet.categoryId),
-      ),
-    )
+    .where(eq(ads.isActive, true))
     .orderBy(desc(ads.createdAt));
 
   return c.json({ ads: result });
