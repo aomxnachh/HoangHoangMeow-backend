@@ -70,7 +70,7 @@ billingRoutes.post("/api/billing/webhook", async (c) => {
   const reference = asText(body.reference);
   const status = asText(body.status).toUpperCase();
   if (!reference)
-    return c.json({ error: "missing reference" }, 400);
+    return c.json({ error: "missing" }, 400);
 
   const [payment] = await db
     .select()

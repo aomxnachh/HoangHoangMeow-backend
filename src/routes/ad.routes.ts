@@ -15,7 +15,6 @@ adRoutes.get("/api/ads", async (c) => {
   if (!user) return unauthorized(c);
   if (user.planType === "PREMIUM") return c.json({ ads: [] });
 
-  // Check user has at least one pet
   const [pet] = await db
     .select({ id: pets.petId })
     .from(pets)
