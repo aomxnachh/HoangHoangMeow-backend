@@ -150,11 +150,9 @@ careRoutes.get("/api/care-recommendations", async (c) => {
 
   for (const rec of allRecommendations) {
     if (rec.petCategoryId === null) {
-      // Targeted at every species: show once as a general recommendation
       result.push({ ...rec, petId: petRows[0].petId, petName: "ทั่วไป" });
       continue;
     }
-    // Only show recommendations matching the user's pet species
     const matchedPets = petRows.filter(
       (pet) => speciesByCategory.get(pet.categoryId) === rec.species,
     );

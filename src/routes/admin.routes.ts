@@ -188,8 +188,6 @@ adminRoutes.patch("/api/admin/recommendations/:id", async (c) => {
     : c.json({ error: "ไม่พบคำแนะนำ" }, 404);
 });
 
-/* ═══════════════ User Management ═══════════════ */
-
 adminRoutes.get("/api/admin/users", async (c) => {
   if (!(await requireAdmin(c))) return forbidden(c);
   const allUsers = await db

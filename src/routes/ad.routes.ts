@@ -36,7 +36,6 @@ adRoutes.get("/api/ads", async (c) => {
     .where(eq(ads.isActive, true))
     .orderBy(desc(ads.createdAt));
 
-  // Only ads matching the user's pet species, or ads targeting every species
   const result = rows.filter(
     (ad) => ad.petCategoryId === null || speciesSet.has(ad.species!),
   );
