@@ -3,7 +3,7 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { CORS_ORIGINS, PORT } from "./config.js";
 import { db } from "./db/index.js";
-import { ads, petCategories, users } from "./db/schema.js";
+import { ads, careRecommends, petCategories, users } from "./db/schema.js";
 import type { AppEnv } from "./middleware/auth.js";
 import { adminRoutes } from "./routes/admin.routes.js";
 import { adRoutes } from "./routes/ad.routes.js";
@@ -112,7 +112,51 @@ console.log(`Backend running on port ${PORT}`);
       ]);
       console.log("Seeded 4 sample ads");
     }
+
+    // Seed care recommendations if none exist
+    const existingRecs = await db.select({ id: careRecommends.id }).from(careRecommends).limit(1);
+    if (existingRecs.length === 0) {
+      const categories = await db
+        .select({ id: petCategories.id })
+        .from(petCategories)
+        .limit(2);
+      const catId1 = categories[0]?.id || 1;
+      const catId2 = categories[1]?.id || catId1;
+      await db.insert(careRecommends).values([
+        {
+          petCategoryId: catId1,
+          ageRange: "ALL",
+          content: "ควรพาไปตรวจสุขภาพประจำปีอย่างน้อยปีละ 1 ครั้ง เพื่อตรวจเช็คสภาพร่างกายทั่วไป ตรวจเลือด และป้องกันโรค",
+        },
+        {
+          petCategoryId: catId1,
+          ageRange: "BABY",
+          content: "ลูกสัตว์เลี้ยงควรได้รับวัคซีนเริ่มต้นเมื่ออายุ 6-8 สัปดาห์ และฉีดเสริมทุก 3-4 สัปดาห์จนถึง 16 สัปดาห์",
+        },
+        {
+          petCategoryId: catId1,
+          ageRange: "ADULT",
+          content: "สัตว์เลี้ยงวัยโตควรได้รับอาหารที่เหมาะสมกับอายุและน้ำหนัก ควบคุมปริมาณอาหารไม่ให้อ้วนเกินไป และออกกำลังกายสม่ำเสมอ",
+        },
+        {
+          petCategoryId: catId1,
+          ageRange: "SENIOR",
+          content: "สัตว์เลี้ยงสูงวัยควรตรวจสุขภาพทุก 6 เดือน เพิ่มอาหารเสริมบำรุงข้อต่อ และลดกิจกรรมที่หนักเกินไป",
+        },
+        {
+          petCategoryId: catId2,
+          ageRange: "ALL",
+          content: "ทำความสะอาดหู ตัดเล็บ และแปรงขนเป็นประจำทุก 1-2 สัปดาห์ เพื่อป้องกันเชื้อราและปรสิต",
+        },
+        {
+          petCategoryId: catId2,
+          ageRange: "ALL",
+          content: "ควรฉีดวัคซีนป้องกันพิษสุนัขบ้าทุกปี และวัคซีนรวมตามกำหนดการที่สัตวแพทย์แนะนำ",
+        },
+      ]);
+      console.log("Seeded 6 sample care recommendations");
+    }
   } catch (err) {
-    console.error("Ads seed skipped:", err);
+    console.error("Seed skipped:", err);
   }
 })();

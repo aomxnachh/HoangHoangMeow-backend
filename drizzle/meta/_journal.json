@@ -22,6 +22,13 @@
       "when": 1785201997931,
       "tag": "0002_social_provider_ids",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1787646106171,
+      "tag": "0003_clumsy_wraith",
+      "breakpoints": true
     }
   ]
 }

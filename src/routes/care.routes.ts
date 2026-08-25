@@ -1,7 +1,7 @@
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, getTableColumns, inArray } from "drizzle-orm";
 import { Hono } from "hono";
 import { db } from "../db/index.js";
-import { carePlans, careRecommends, pets } from "../db/schema.js";
+import { carePlans, careRecommends, petCategories, pets } from "../db/schema.js";
 import {
   ownedPet,
   requireUser,
@@ -122,21 +122,46 @@ careRoutes.get("/api/care-recommendations", async (c) => {
     })
     .from(pets)
     .where(eq(pets.userId, user.id));
-  const categoryIdList = [...new Set(petRows.map((pet) => pet.categoryId))];
-  if (!categoryIdList.length) return c.json({ recommendations: [] });
-  const recommendations = await db
-    .select()
+  if (!petRows.length) return c.json({ recommendations: [] });
+
+  const categoryIdSet = new Set(petRows.map((pet) => pet.categoryId));
+
+  const userCategories = await db
+    .select({ id: petCategories.id, species: petCategories.species })
+    .from(petCategories)
+    .where(inArray(petCategories.id, [...categoryIdSet]));
+  const speciesByCategory = new Map(
+    userCategories.map((category) => [category.id, category.species]),
+  );
+
+  const allRecommendations = await db
+    .select({
+      ...getTableColumns(careRecommends),
+      species: petCategories.species,
+    })
     .from(careRecommends)
-    .where(inArray(careRecommends.petCategoryId, categoryIdList));
-  return c.json({
-    recommendations: recommendations.flatMap((recommendation) =>
-      petRows
-        .filter((pet) => pet.categoryId === recommendation.petCategoryId)
-        .map((pet) => ({
-          ...recommendation,
-          petId: pet.petId,
-          petName: pet.petName,
-        })),
-    ),
-  });
+    .leftJoin(
+      petCategories,
+      eq(careRecommends.petCategoryId, petCategories.id),
+    )
+    .orderBy(asc(careRecommends.id));
+
+  const result: Array<Record<string, unknown>> = [];
+
+  for (const rec of allRecommendations) {
+    if (rec.petCategoryId === null) {
+      // Targeted at every species: show once as a general recommendation
+      result.push({ ...rec, petId: petRows[0].petId, petName: "ทั่วไป" });
+      continue;
+    }
+    // Only show recommendations matching the user's pet species
+    const matchedPets = petRows.filter(
+      (pet) => speciesByCategory.get(pet.categoryId) === rec.species,
+    );
+    for (const pet of matchedPets) {
+      result.push({ ...rec, petId: pet.petId, petName: pet.petName });
+    }
+  }
+
+  return c.json({ recommendations: result });
 });

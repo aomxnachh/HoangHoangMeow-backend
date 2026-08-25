@@ -12,7 +12,7 @@ export const APP_URL = process.env.APP_URL || "http://localhost:5173";
 export const EMAIL_WEBHOOK_URL = process.env.EMAIL_WEBHOOK_URL;
 
 export const PAYMENT_CHECKOUT_URL = process.env.PAYMENT_CHECKOUT_URL;
-export const PREMIUM_PRICE = 149;
+export const PREMIUM_PRICE = 39;
 
 export const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || "";
 export const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || "";

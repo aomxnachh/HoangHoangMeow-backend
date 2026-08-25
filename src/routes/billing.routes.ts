@@ -1,7 +1,7 @@
-import { addDays } from "../utils/helpers.js";
+import { addDays, asText } from "../utils/helpers.js";
 import { and, desc, eq } from "drizzle-orm";
 import { Hono } from "hono";
-import { PAYMENT_CHECKOUT_URL, PREMIUM_PRICE } from "../config.js";
+import { APP_URL, PAYMENT_CHECKOUT_URL, PREMIUM_PRICE } from "../config.js";
 import { db } from "../db/index.js";
 import { payments, users } from "../db/schema.js";
 import {
@@ -10,7 +10,6 @@ import {
   type AppEnv,
 } from "../middleware/auth.js";
 import { publicUser } from "../utils/auth.js";
-import { asText } from "../utils/helpers.js";
 
 export const billingRoutes = new Hono<AppEnv>();
 
@@ -128,6 +127,68 @@ billingRoutes.post("/api/billing/cancel", async (c) => {
     .where(eq(users.id, user.id));
   return c.json({
     message: "ยกเลิกการสมัคร Premium แล้ว แพ็กเกจเปลี่ยนเป็น Free ทันที",
+    user: updated ? publicUser(updated) : null,
+  });
+});
+
+billingRoutes.get("/api/billing/verify", async (c) => {
+  const user = await requireUser(c);
+  if (!user) return unauthorized(c);
+  const reference = asText(c.req.query("ref"));
+  if (!reference) return c.json({ error: "ไม่มีรหัสอ้างอิง" }, 400);
+
+  const [payment] = await db
+    .select()
+    .from(payments)
+    .where(
+      and(eq(payments.reference, reference), eq(payments.userId, user.id)),
+    );
+  if (!payment) return c.json({ error: "ไม่พบรายการชำระเงิน" }, 404);
+
+  const [currentUser] = await db
+    .select()
+    .from(users)
+    .where(eq(users.id, user.id));
+
+  return c.json({
+    status: payment.status,
+    amount: payment.amount,
+    reference: payment.reference,
+    createdAt: payment.createdAt,
+    periodEnd: payment.periodEnd,
+    user: currentUser ? publicUser(currentUser) : null,
+  });
+});
+
+billingRoutes.post("/api/billing/simulate-payment", async (c) => {
+  const user = await requireUser(c);
+  if (!user) return unauthorized(c);
+  if (user.planType === "PREMIUM")
+    return c.json({ error: "คุณเป็น Premium อยู่แล้ว" }, 400);
+
+  const reference = `HHM-${user.id}-${Date.now()}`;
+  await db.transaction(async (tx) => {
+    await tx.insert(payments).values({
+      userId: user.id,
+      amount: String(PREMIUM_PRICE),
+      status: "SUCCESS",
+      provider: "SIMULATE",
+      reference,
+      periodEnd: addDays(new Date(), 30),
+    });
+    await tx
+      .update(users)
+      .set({ planType: "PREMIUM", updatedAt: new Date() })
+      .where(eq(users.id, user.id));
+  });
+
+  const [updated] = await db
+    .select()
+    .from(users)
+    .where(eq(users.id, user.id));
+  return c.json({
+    message: "ชำระเงินสำเร็จ! คุณเป็น Premium แล้ว",
+    reference,
     user: updated ? publicUser(updated) : null,
   });
 });

@@ -1,7 +1,7 @@
-import { desc, eq } from "drizzle-orm";
+import { desc, eq, getTableColumns, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { db } from "../db/index.js";
-import { ads, careRecommends, pets, users } from "../db/schema.js";
+import { ads, careRecommends, petCategories, pets, users } from "../db/schema.js";
 import {
   forbidden,
   requireAdmin,
@@ -24,18 +24,43 @@ adminRoutes.get("/api/admin/dashboard", async (c) => {
   });
 });
 
+adminRoutes.get("/api/admin/pet-species", async (c) => {
+  if (!(await requireAdmin(c))) return forbidden(c);
+  // One representative category id per species, for admin dropdowns
+  const rows = await db
+    .select({
+      id: sql<number>`min(${petCategories.id})::int`,
+      species: petCategories.species,
+    })
+    .from(petCategories)
+    .groupBy(petCategories.species)
+    .orderBy(petCategories.species);
+  return c.json({ categories: rows });
+});
+
 adminRoutes.get("/api/admin/ads", async (c) => {
   if (!(await requireAdmin(c))) return forbidden(c);
-  return c.json({
-    ads: await db.select().from(ads).orderBy(desc(ads.createdAt)),
-  });
+  const rows = await db
+    .select({
+      ...getTableColumns(ads),
+      species: petCategories.species,
+    })
+    .from(ads)
+    .leftJoin(petCategories, eq(ads.petCategoryId, petCategories.id))
+    .orderBy(desc(ads.createdAt));
+  return c.json({ ads: rows });
 });
 
 adminRoutes.post("/api/admin/ads", async (c) => {
   if (!(await requireAdmin(c))) return forbidden(c);
   const body = await c.req.json<Record<string, unknown>>();
-  const petCategoryId = Number(body.petCategoryId);
-  if (!Number.isInteger(petCategoryId) || !asText(body.content))
+  const petCategoryId =
+    body.petCategoryId === null ||
+    body.petCategoryId === undefined ||
+    body.petCategoryId === ""
+      ? null
+      : Number(body.petCategoryId);
+  if ((!Number.isInteger(petCategoryId) && petCategoryId !== null) || !asText(body.content))
     return c.json({ error: "กรอกหมวดสัตว์เลี้ยงและเนื้อหาโฆษณา" }, 400);
   const [ad] = await db
     .insert(ads)
@@ -75,7 +100,10 @@ adminRoutes.patch("/api/admin/ads/:id", async (c) => {
     values.location = asText(body.location) || "HOME";
   if (body.isActive !== undefined) values.isActive = Boolean(body.isActive);
   if (body.petCategoryId !== undefined)
-    values.petCategoryId = Number(body.petCategoryId);
+    values.petCategoryId =
+      body.petCategoryId === null || body.petCategoryId === ""
+        ? null
+        : Number(body.petCategoryId);
   const [ad] = await db
     .update(ads)
     .set(values)
@@ -86,20 +114,31 @@ adminRoutes.patch("/api/admin/ads/:id", async (c) => {
 
 adminRoutes.get("/api/admin/recommendations", async (c) => {
   if (!(await requireAdmin(c))) return forbidden(c);
-  return c.json({
-    recommendations: await db
-      .select()
-      .from(careRecommends)
-      .orderBy(desc(careRecommends.createdAt)),
-  });
+  const rows = await db
+    .select({
+      ...getTableColumns(careRecommends),
+      species: petCategories.species,
+    })
+    .from(careRecommends)
+    .leftJoin(
+      petCategories,
+      eq(careRecommends.petCategoryId, petCategories.id),
+    )
+    .orderBy(desc(careRecommends.createdAt));
+  return c.json({ recommendations: rows });
 });
 
 adminRoutes.post("/api/admin/recommendations", async (c) => {
   if (!(await requireAdmin(c))) return forbidden(c);
   const body = await c.req.json<Record<string, unknown>>();
-  const petCategoryId = Number(body.petCategoryId);
+  const petCategoryId =
+    body.petCategoryId === null ||
+    body.petCategoryId === undefined ||
+    body.petCategoryId === ""
+      ? null
+      : Number(body.petCategoryId);
   if (
-    !Number.isInteger(petCategoryId) ||
+    (!Number.isInteger(petCategoryId) && petCategoryId !== null) ||
     !asText(body.ageRange) ||
     !asText(body.content)
   )
@@ -135,7 +174,10 @@ adminRoutes.patch("/api/admin/recommendations/:id", async (c) => {
   if (body.ageRange !== undefined) values.ageRange = asText(body.ageRange);
   if (body.content !== undefined) values.content = asText(body.content);
   if (body.petCategoryId !== undefined)
-    values.petCategoryId = Number(body.petCategoryId);
+    values.petCategoryId =
+      body.petCategoryId === null || body.petCategoryId === ""
+        ? null
+        : Number(body.petCategoryId);
   const [recommendation] = await db
     .update(careRecommends)
     .set(values)
@@ -144,4 +186,59 @@ adminRoutes.patch("/api/admin/recommendations/:id", async (c) => {
   return recommendation
     ? c.json({ recommendation })
     : c.json({ error: "ไม่พบคำแนะนำ" }, 404);
+});
+
+/* ═══════════════ User Management ═══════════════ */
+
+adminRoutes.get("/api/admin/users", async (c) => {
+  if (!(await requireAdmin(c))) return forbidden(c);
+  const allUsers = await db
+    .select({
+      id: users.id,
+      username: users.username,
+      email: users.email,
+      phone: users.phone,
+      role: users.role,
+      planType: users.planType,
+      authProvider: users.authProvider,
+      deletedAt: users.deletedAt,
+      createdAt: users.createdAt,
+    })
+    .from(users)
+    .orderBy(desc(users.createdAt));
+  return c.json({ users: allUsers });
+});
+
+adminRoutes.patch("/api/admin/users/:id", async (c) => {
+  if (!(await requireAdmin(c))) return forbidden(c);
+  const id = Number(c.req.param("id"));
+  const body = await c.req.json<Record<string, unknown>>();
+  const values: Partial<typeof users.$inferInsert> = { updatedAt: new Date() };
+  const role = asText(body.role);
+  const planType = asText(body.planType);
+  if (role && ["USER", "ADMIN"].includes(role))
+    values.role = role as "USER" | "ADMIN";
+  if (planType && ["FREE", "PREMIUM"].includes(planType))
+    values.planType = planType as "FREE" | "PREMIUM";
+  const [user] = await db
+    .update(users)
+    .set(values)
+    .where(eq(users.id, id))
+    .returning();
+  return user ? c.json({ user }) : c.json({ error: "ไม่พบผู้ใช้" }, 404);
+});
+
+adminRoutes.delete("/api/admin/users/:id", async (c) => {
+  if (!(await requireAdmin(c))) return forbidden(c);
+  const id = Number(c.req.param("id"));
+  const [existing] = await db
+    .select({ id: users.id })
+    .from(users)
+    .where(eq(users.id, id));
+  if (!existing) return c.json({ error: "ไม่พบผู้ใช้" }, 404);
+  await db
+    .update(users)
+    .set({ deletedAt: new Date(), updatedAt: new Date() })
+    .where(eq(users.id, id));
+  return c.body(null, 204);
 });

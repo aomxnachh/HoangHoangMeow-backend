@@ -128,7 +128,7 @@ export const carePlans = pgTable('care_plan', {
 
 export const ads = pgTable('ads', {
 	id: serial('id').primaryKey(),
-	petCategoryId: integer('pet_category_id').notNull().references(() => petCategories.id, { onDelete: 'cascade' }),
+	petCategoryId: integer('pet_category_id').references(() => petCategories.id, { onDelete: 'cascade' }),
 	location: varchar('location', { length: 255 }),
 	title: varchar('title', { length: 255 }),
 	content: text('content').notNull(),
@@ -141,7 +141,7 @@ export const ads = pgTable('ads', {
 
 export const careRecommends = pgTable('care_recommend', {
 	id: serial('id').primaryKey(),
-	petCategoryId: integer('pet_category_id').notNull().references(() => petCategories.id, { onDelete: 'cascade' }),
+	petCategoryId: integer('pet_category_id').references(() => petCategories.id, { onDelete: 'cascade' }),
 	ageRange: varchar('age_range', { length: 50 }).notNull(),
 	content: text('content').notNull(),
 	createdAt: timestamp('created_at').defaultNow().notNull(),

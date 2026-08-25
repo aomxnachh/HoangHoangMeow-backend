@@ -1,7 +1,7 @@
-import { and, desc, eq } from "drizzle-orm";
+import { desc, eq, getTableColumns, inArray } from "drizzle-orm";
 import { Hono } from "hono";
 import { db } from "../db/index.js";
-import { ads, pets } from "../db/schema.js";
+import { ads, petCategories, pets } from "../db/schema.js";
 import {
   requireUser,
   unauthorized,
@@ -15,18 +15,31 @@ adRoutes.get("/api/ads", async (c) => {
   if (!user) return unauthorized(c);
   if (user.planType === "PREMIUM") return c.json({ ads: [] });
 
-  const [pet] = await db
-    .select({ id: pets.petId })
+  const petRows = await db
+    .select({ categoryId: pets.petCategoryId })
     .from(pets)
-    .where(eq(pets.userId, user.id))
-    .limit(1);
-  if (!pet) return c.json({ ads: [] });
+    .where(eq(pets.userId, user.id));
 
-  const result = await db
-    .select()
+  const categoryIds = [...new Set(petRows.map((pet) => pet.categoryId))];
+  const userCategories = categoryIds.length
+    ? await db
+        .select({ species: petCategories.species })
+        .from(petCategories)
+        .where(inArray(petCategories.id, categoryIds))
+    : [];
+  const speciesSet = new Set(userCategories.map((row) => row.species));
+
+  const rows = await db
+    .select({ ...getTableColumns(ads), species: petCategories.species })
     .from(ads)
+    .leftJoin(petCategories, eq(ads.petCategoryId, petCategories.id))
     .where(eq(ads.isActive, true))
     .orderBy(desc(ads.createdAt));
+
+  // Only ads matching the user's pet species, or ads targeting every species
+  const result = rows.filter(
+    (ad) => ad.petCategoryId === null || speciesSet.has(ad.species!),
+  );
 
   return c.json({ ads: result });
 });
