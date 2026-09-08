@@ -26,7 +26,6 @@ adminRoutes.get("/api/admin/dashboard", async (c) => {
 
 adminRoutes.get("/api/admin/pet-species", async (c) => {
   if (!(await requireAdmin(c))) return forbidden(c);
-  // One representative category id per species, for admin dropdowns
   const rows = await db
     .select({
       id: sql<number>`min(${petCategories.id})::int`,
@@ -148,7 +147,9 @@ adminRoutes.post("/api/admin/recommendations", async (c) => {
     .values({
       petCategoryId,
       ageRange: asText(body.ageRange),
+      title: asText(body.title) || null,
       content: asText(body.content),
+      imageUrl: asText(body.imageUrl) || null,
     })
     .returning();
   return c.json({ recommendation }, 201);
@@ -173,6 +174,8 @@ adminRoutes.patch("/api/admin/recommendations/:id", async (c) => {
   const values: Partial<typeof careRecommends.$inferInsert> = {};
   if (body.ageRange !== undefined) values.ageRange = asText(body.ageRange);
   if (body.content !== undefined) values.content = asText(body.content);
+  if (body.title !== undefined) values.title = asText(body.title) || null;
+  if (body.imageUrl !== undefined) values.imageUrl = asText(body.imageUrl) || null;
   if (body.petCategoryId !== undefined)
     values.petCategoryId =
       body.petCategoryId === null || body.petCategoryId === ""

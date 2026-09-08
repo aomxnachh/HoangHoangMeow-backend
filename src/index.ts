@@ -56,6 +56,7 @@ app.route("/", adminRoutes);
 
 serve({ fetch: app.fetch, port: PORT });
 console.log(`Backend running on port ${PORT}`);
+/* 
 //Mock up adsssssssssssssss
 (async () => {
   try {
@@ -160,3 +161,4 @@ console.log(`Backend running on port ${PORT}`);
     console.error("Seed skipped:", err);
   }
 })();
+*/

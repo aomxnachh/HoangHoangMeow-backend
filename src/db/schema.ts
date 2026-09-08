@@ -143,7 +143,9 @@ export const careRecommends = pgTable('care_recommend', {
 	id: serial('id').primaryKey(),
 	petCategoryId: integer('pet_category_id').references(() => petCategories.id, { onDelete: 'cascade' }),
 	ageRange: varchar('age_range', { length: 50 }).notNull(),
+	title: varchar('title', { length: 255 }),
 	content: text('content').notNull(),
+	imageUrl: text('image_url'),
 	createdAt: timestamp('created_at').defaultNow().notNull(),
 	updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
