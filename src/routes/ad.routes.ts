@@ -36,9 +36,11 @@ adRoutes.get("/api/ads", async (c) => {
     .where(eq(ads.isActive, true))
     .orderBy(desc(ads.createdAt));
 
-  const result = rows.filter(
-    (ad) => ad.petCategoryId === null || speciesSet.has(ad.species!),
-  );
+  const result = categoryIds.length
+    ? rows.filter(
+        (ad) => ad.petCategoryId === null || speciesSet.has(ad.species!),
+      )
+    : rows;
 
   return c.json({ ads: result });
 });

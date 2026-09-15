@@ -122,7 +122,27 @@ careRoutes.get("/api/care-recommendations", async (c) => {
     })
     .from(pets)
     .where(eq(pets.userId, user.id));
-  if (!petRows.length) return c.json({ recommendations: [] });
+  if (!petRows.length) {
+    // No pets yet — return ALL recommendations from both categories
+    const allRecommendations = await db
+      .select({
+        ...getTableColumns(careRecommends),
+        species: petCategories.species,
+      })
+      .from(careRecommends)
+      .leftJoin(
+        petCategories,
+        eq(careRecommends.petCategoryId, petCategories.id),
+      )
+      .orderBy(asc(careRecommends.id));
+
+    const result = allRecommendations.map((rec) => ({
+      ...rec,
+      petId: null,
+      petName: rec.species || "ทั่วไป",
+    }));
+    return c.json({ recommendations: result });
+  }
 
   const categoryIdSet = new Set(petRows.map((pet) => pet.categoryId));
 
