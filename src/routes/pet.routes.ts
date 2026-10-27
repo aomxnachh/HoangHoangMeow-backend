@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { db } from "../db/index.js";
-import { pets } from "../db/schema.js";
+import { pets, users } from "../db/schema.js";
 import {
   ownedPet,
   requireUser,
@@ -10,6 +10,8 @@ import {
 } from "../middleware/auth.js";
 import { asText, toNumber } from "../utils/helpers.js";
 import { apiPet, findOrCreateCategory, petList } from "./_shared.js";
+import { editablePetIds } from '../middleware/pet-access.js';
+import { validatePet } from '../utils/validation.js';
 
 export const petRoutes = new Hono<AppEnv>();
 
@@ -28,13 +30,16 @@ petRoutes.get("/api/pets", async (c) => {
     );
   if (gender && ["MALE", "FEMALE", "UNKNOWN"].includes(gender))
     rows = rows.filter((row) => row.gender === gender);
-  return c.json({ pets: rows.map(apiPet) });
+  const editable = await editablePetIds(user.id);
+  return c.json({ pets: rows.map(row => ({ ...apiPet(row), readOnly: user.planType === "FREE" && !editable.includes(row.id) })) });
 });
 
 petRoutes.post("/api/pets", async (c) => {
   const user = await requireUser(c);
   if (!user) return unauthorized(c);
   const body = await c.req.json<Record<string, unknown>>();
+  const errors = validatePet(body);
+  if (Object.keys(errors).length) return c.json({ error: Object.values(errors)[0], errors }, 400);
   const name = asText(body.name),
     species = asText(body.species),
     breed = asText(body.breed);
@@ -57,7 +62,11 @@ petRoutes.post("/api/pets", async (c) => {
     : "UNKNOWN";
   const weight = toNumber(body.weight);
   const birthdate = asText(body.birthdate) || null;
-  const [pet] = await db
+  const pet = await db.transaction(async tx => {
+    const [current] = await tx.select().from(users).where(eq(users.id, user.id)).for('update');
+    const existing = await tx.select({ id: pets.petId }).from(pets).where(eq(pets.userId, user.id));
+    if (current.planType === 'FREE' && existing.length >= 3) return null;
+    const [created] = await tx
     .insert(pets)
     .values({
       userId: user.id,
@@ -72,6 +81,9 @@ petRoutes.post("/api/pets", async (c) => {
       notes: asText(body.notes) || null,
     })
     .returning();
+    return created;
+  });
+  if (!pet) return c.json({ error: 'แพ็กเกจ Free เพิ่มสัตว์เลี้ยงได้สูงสุด 3 ตัว', code: 'PET_LIMIT_REACHED' }, 403);
   return c.json(
     {
       pet: apiPet({
@@ -97,8 +109,9 @@ petRoutes.get("/api/pets/:id", async (c) => {
   if (!user) return unauthorized(c);
   const id = Number(c.req.param("id"));
   const pet = (await petList(user.id)).find((item) => item.id === id);
+  const editable = await editablePetIds(user.id);
   return pet
-    ? c.json({ pet: apiPet(pet) })
+    ? c.json({ pet: { ...apiPet(pet), readOnly: user.planType === "FREE" && !editable.includes(pet.id) } })
     : c.json({ error: "ไม่พบสัตว์เลี้ยง" }, 404);
 });
 
@@ -109,6 +122,8 @@ petRoutes.patch("/api/pets/:id", async (c) => {
   const existing = await ownedPet(user.id, id);
   if (!existing) return c.json({ error: "ไม่พบสัตว์เลี้ยง" }, 404);
   const body = await c.req.json<Record<string, unknown>>();
+  const errors = validatePet(body, true);
+  if (Object.keys(errors).length) return c.json({ error: Object.values(errors)[0], errors }, 400);
   let categoryId = existing.petCategoryId;
   if (asText(body.species))
     categoryId = (

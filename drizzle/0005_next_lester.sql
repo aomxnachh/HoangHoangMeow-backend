@@ -1,2 +1,2 @@
-ALTER TABLE "care_recommend" ADD COLUMN "title" varchar(255);--> statement-breakpoint
-ALTER TABLE "care_recommend" ADD COLUMN "image_url" text;
+ALTER TABLE "care_recommend" ADD COLUMN IF NOT EXISTS "title" varchar(255);--> statement-breakpoint
+ALTER TABLE "care_recommend" ADD COLUMN IF NOT EXISTS "image_url" text;

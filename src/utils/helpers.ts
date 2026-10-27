@@ -10,7 +10,7 @@ export const asDate = (value: unknown) => {
 };
 
 export const dateOnly = (value: Date | string) =>
-  (value instanceof Date ? value.toISOString() : String(value)).slice(0, 10);
+  value instanceof Date ? new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bangkok' }).format(value) : String(value).slice(0, 10);
 
 export const ageFromBirthdate = (value: string | null) => {
   if (!value) return null;

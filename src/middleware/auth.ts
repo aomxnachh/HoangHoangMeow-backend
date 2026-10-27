@@ -11,6 +11,7 @@ export type AppEnv = { Variables: { user: User } };
 export type AppContext = Context<AppEnv>;
 
 export async function requireUser(c: AppContext) {
+  if (c.get("user")) return c.get("user");
   const authorization = c.req.header("Authorization") || "";
   const token = authorization.startsWith("Bearer ")
     ? authorization.slice(7)
@@ -27,6 +28,7 @@ export const unauthorized = (c: AppContext) =>
   c.json({ error: "กรุณาเข้าสู่ระบบ" }, 401);
 
 export async function ownedPet(userId: number, id: number) {
+  if (!Number.isSafeInteger(id) || id < 1) return null;
   const [pet] = await db
     .select()
     .from(pets)

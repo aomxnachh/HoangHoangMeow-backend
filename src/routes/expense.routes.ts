@@ -10,6 +10,8 @@ import {
 } from "../middleware/auth.js";
 import { publicUser } from "../utils/auth.js";
 import { apiPet, petList } from "./_shared.js";
+import { today } from '../utils/validation.js';
+import { validateExpense } from '../utils/validation.js';
 
 const asText = (value: unknown) =>
   typeof value === "string" ? value.trim() : "";
@@ -64,13 +66,20 @@ expenseRoutes.get("/api/expenses", async (c) => {
       .map((r) => ({ ...r, id: `hr-${r.id}` })),
   ].sort((a, b) => b.date.localeCompare(a.date));
 
-  return c.json({ expenses: combined });
+  const year = c.req.query('year');
+  const month = c.req.query('month');
+  if ((year && !/^(19|20|21)\d{2}$/.test(year)) || (month && (!year || !/^(0[1-9]|1[0-2])$/.test(month)))) return c.json({ error: 'ปีหรือเดือนไม่ถูกต้อง' }, 400);
+  const prefix = year ? year + (month ? `-${month}` : '') : '';
+  const filtered = combined.filter(row => row.date.startsWith(prefix));
+  return c.json({ expenses: filtered, total: Math.round(filtered.reduce((sum, row) => sum + Number(row.amount), 0) * 100) / 100 });
 });
 
 expenseRoutes.post("/api/expenses", async (c) => {
   const user = await requireUser(c);
   if (!user) return unauthorized(c);
   const body = await c.req.json<Record<string, unknown>>();
+  const validationError = validateExpense(body);
+  if (validationError) return c.json({ error: validationError }, 400);
   const petId = Number(body.petId);
   const amount = toNumber(body.amount);
   const expenseDate = asText(body.date);
@@ -136,6 +145,8 @@ expenseRoutes.patch("/api/expenses/:id", async (c) => {
     .where(and(eq(expenses.id, id), eq(pets.userId, user.id)));
   if (!existing) return c.json({ error: "ไม่พบรายการ" }, 404);
   const body = await c.req.json<Record<string, unknown>>();
+  const validationError = validateExpense(body, true);
+  if (validationError) return c.json({ error: validationError }, 400);
   const category = asText(body.category),
     expenseDate = asText(body.date),
     amount = body.amount !== undefined ? toNumber(body.amount) : undefined;
@@ -279,7 +290,7 @@ expenseRoutes.get("/api/dashboard", async (c) => {
       .orderBy(asc(activities.scheduledAt)),
   ]);
 
-  const thisMonth = new Date().toISOString().slice(0, 7);
+  const thisMonth = today().slice(0, 7);
   const totalThisMonth = allExpenses
     .filter((row) => row.date.startsWith(thisMonth))
     .reduce((total, row) => total + Number(row.amount), 0);

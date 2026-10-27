@@ -1,4 +1,4 @@
-import { and, asc, eq, getTableColumns, inArray } from "drizzle-orm";
+import { and, asc, eq, getTableColumns } from "drizzle-orm";
 import { Hono } from "hono";
 import { db } from "../db/index.js";
 import { carePlans, careRecommends, petCategories, pets } from "../db/schema.js";
@@ -9,6 +9,10 @@ import {
   type AppEnv,
 } from "../middleware/auth.js";
 import { asDate, asText, toNumber } from "../utils/helpers.js";
+import { petList } from './_shared.js';
+import { ageGroup, matchesCategory, profileWarning } from '../utils/care.js';
+
+import { validateCare } from "../utils/validation.js";
 
 export const careRoutes = new Hono<AppEnv>();
 
@@ -37,6 +41,8 @@ careRoutes.post("/api/care-plans", async (c) => {
   const user = await requireUser(c);
   if (!user) return unauthorized(c);
   const body = await c.req.json<Record<string, unknown>>();
+  const validationError = validateCare(body);
+  if (validationError) return c.json({ error: validationError }, 400);
   const petId = Number(body.petId),
     nextDueAt = body.nextDueAt === undefined ? null : asDate(body.nextDueAt);
   if (!(await ownedPet(user.id, petId)))
@@ -65,6 +71,8 @@ careRoutes.patch("/api/care-plans/:id", async (c) => {
   if (!user) return unauthorized(c);
   const id = Number(c.req.param("id"));
   const body = await c.req.json<Record<string, unknown>>();
+  const validationError = validateCare(body);
+  if (validationError) return c.json({ error: validationError }, 400);
   const [plan] = await db
     .select({ id: carePlans.id })
     .from(carePlans)
@@ -78,6 +86,12 @@ careRoutes.patch("/api/care-plans/:id", async (c) => {
   const frequencyDays =
     body.frequencyDays !== undefined ? toNumber(body.frequencyDays) : undefined;
   const values: Partial<typeof carePlans.$inferInsert> = { updatedAt: new Date() };
+  if (body.petId !== undefined) {
+    if (!(await ownedPet(user.id, Number(body.petId)))) return c.json({ error: 'ไม่พบสัตว์เลี้ยง' }, 404);
+    values.petId = Number(body.petId);
+  }
+  if (body.title !== undefined && !title) return c.json({ error: 'กรุณากรอกหัวข้อแผนดูแล' }, 400);
+  if (body.nextDueAt !== undefined && !nextDueAt) return c.json({ error: 'กรุณากรอกวันที่ให้ถูกต้อง' }, 400);
   if (status) {
     if (!["PENDING", "DONE", "CANCELLED"].includes(status))
       return c.json({ error: "สถานะแผนไม่ถูกต้อง" }, 400);
@@ -114,72 +128,18 @@ careRoutes.delete("/api/care-plans/:id", async (c) => {
 careRoutes.get("/api/care-recommendations", async (c) => {
   const user = await requireUser(c);
   if (!user) return unauthorized(c);
-  const petRows = await db
-    .select({
-      petId: pets.petId,
-      petName: pets.name,
-      categoryId: pets.petCategoryId,
-    })
-    .from(pets)
-    .where(eq(pets.userId, user.id));
-  if (!petRows.length) {
-    // No pets yet — return ALL recommendations from both categories
-    const allRecommendations = await db
-      .select({
-        ...getTableColumns(careRecommends),
-        species: petCategories.species,
-      })
-      .from(careRecommends)
-      .leftJoin(
-        petCategories,
-        eq(careRecommends.petCategoryId, petCategories.id),
-      )
-      .orderBy(asc(careRecommends.id));
-
-    const result = allRecommendations.map((rec) => ({
-      ...rec,
-      petId: null,
-      petName: rec.species || "ทั่วไป",
-    }));
-    return c.json({ recommendations: result });
+  const petRows = await petList(user.id);
+  if (!petRows.length) return c.json({ recommendations: [], warnings: [{ code: 'NO_PETS', message: 'กรุณาเพิ่มข้อมูลสัตว์เลี้ยงตัวแรกก่อน' }] });
+  const records = await db.select({ ...getTableColumns(careRecommends), species: petCategories.species, breed: petCategories.breed })
+    .from(careRecommends).leftJoin(petCategories, eq(careRecommends.petCategoryId, petCategories.id)).orderBy(asc(careRecommends.id));
+  const recommendations: Array<Record<string, unknown>> = [];
+  const warnings: Array<Record<string, unknown>> = [];
+  for (const pet of petRows) {
+    const warning = profileWarning(pet);
+    if (warning) { warnings.push({ petId: pet.id, petName: pet.name, code: 'INVALID_PROFILE', message: warning }); continue; }
+    const matches = records.filter((rec) => matchesCategory(pet, rec) && (rec.ageRange === 'ALL' || rec.ageRange === ageGroup(pet.birthdate!)));
+    if (!matches.length) warnings.push({ petId: pet.id, petName: pet.name, code: 'NO_STANDARD_PLAN', message: 'ยังไม่มีแผนการดูแลมาตรฐานสำหรับสัตว์ประเภทนี้ สามารถตั้งค่าแจ้งเตือนด้วยตนเองได้' });
+    for (const rec of matches) recommendations.push({ ...rec, petId: pet.id, petName: pet.name, allergies: pet.allergies, notes: pet.notes, weight: pet.weight });
   }
-
-  const categoryIdSet = new Set(petRows.map((pet) => pet.categoryId));
-
-  const userCategories = await db
-    .select({ id: petCategories.id, species: petCategories.species })
-    .from(petCategories)
-    .where(inArray(petCategories.id, [...categoryIdSet]));
-  const speciesByCategory = new Map(
-    userCategories.map((category) => [category.id, category.species]),
-  );
-
-  const allRecommendations = await db
-    .select({
-      ...getTableColumns(careRecommends),
-      species: petCategories.species,
-    })
-    .from(careRecommends)
-    .leftJoin(
-      petCategories,
-      eq(careRecommends.petCategoryId, petCategories.id),
-    )
-    .orderBy(asc(careRecommends.id));
-
-  const result: Array<Record<string, unknown>> = [];
-
-  for (const rec of allRecommendations) {
-    if (rec.petCategoryId === null) {
-      result.push({ ...rec, petId: petRows[0].petId, petName: "ทั่วไป" });
-      continue;
-    }
-    const matchedPets = petRows.filter(
-      (pet) => speciesByCategory.get(pet.categoryId) === rec.species,
-    );
-    for (const pet of matchedPets) {
-      result.push({ ...rec, petId: pet.petId, petName: pet.petName });
-    }
-  }
-
-  return c.json({ recommendations: result });
+  return c.json({ recommendations, warnings });
 });

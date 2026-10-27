@@ -9,6 +9,7 @@ import {
   type AppEnv,
 } from "../middleware/auth.js";
 import { addDays, asDate, asText, dateOnly, toNumber } from "../utils/helpers.js";
+import { reminderDate, validateReminder } from '../utils/validation.js';
 
 export const reminderRoutes = new Hono<AppEnv>();
 
@@ -24,6 +25,7 @@ reminderRoutes.get("/api/reminders", async (c) => {
       title: activities.title,
       description: activities.detail,
       scheduledAt: activities.scheduledAt,
+      snoozedUntil: activities.snoozedUntil,
       reminderMinutes: activities.reminderMinutes,
       recurrenceDays: activities.recurrenceDays,
       status: activities.status,
@@ -33,15 +35,23 @@ reminderRoutes.get("/api/reminders", async (c) => {
     .innerJoin(pets, eq(activities.petId, pets.petId))
     .where(and(eq(pets.userId, user.id), eq(activities.entryType, "REMINDER")))
     .orderBy(asc(activities.scheduledAt));
-  return c.json({ reminders: rows });
+  const now = Date.now();
+  const reminders = rows.map(row => {
+    const dueAt = row.snoozedUntil || row.scheduledAt;
+    const notifyAt = dueAt ? dueAt.valueOf() - (row.snoozedUntil ? 0 : (row.reminderMinutes || 0) * 60000) : Infinity;
+    return { ...row, notificationDue: row.status === 'PENDING' && notifyAt <= now, overdue: row.status === 'PENDING' && !!dueAt && dueAt.valueOf() < now };
+  });
+  return c.json({ reminders });
 });
 
 reminderRoutes.post("/api/reminders", async (c) => {
   const user = await requireUser(c);
   if (!user) return unauthorized(c);
   const body = await c.req.json<Record<string, unknown>>();
+  const validationError = validateReminder(body);
+  if (validationError) return c.json({ error: validationError }, 400);
   const petId = Number(body.petId);
-  const scheduledAt = asDate(body.scheduledAt);
+  const scheduledAt = reminderDate(body.scheduledAt);
   if (!(await ownedPet(user.id, petId)))
     return c.json({ error: "ไม่พบสัตว์เลี้ยง" }, 404);
   if (!asText(body.type) || !asText(body.title) || !scheduledAt)
@@ -89,14 +99,15 @@ reminderRoutes.post("/api/reminders/:id/done", async (c) => {
     );
   if (!reminder) return c.json({ error: "ไม่พบการแจ้งเตือน" }, 404);
   const data = reminder.activity;
-  if (data.status === "DONE")
+  if (data.status !== "PENDING")
     return c.json({ error: "รายการนี้ทำเสร็จแล้ว" }, 409);
   const now = new Date();
-  await db.transaction(async (tx) => {
-    await tx
+  const completed = await db.transaction(async (tx) => {
+    const changed = await tx
       .update(activities)
       .set({ status: "DONE", completedAt: now, updatedAt: now })
-      .where(eq(activities.id, data.id));
+      .where(and(eq(activities.id, data.id), eq(activities.status, "PENDING"))).returning();
+    if (!changed.length) return false;
     await tx.insert(activities).values({
       petId: data.petId,
       entryType: "HEALTH_RECORD",
@@ -110,7 +121,10 @@ reminderRoutes.post("/api/reminders/:id/done", async (c) => {
       productUrl: data.productUrl,
     });
     if (data.recurrenceDays && data.recurrenceDays > 0) {
-      const nextAt = addDays(data.scheduledAt || now, data.recurrenceDays);
+      const base = data.snoozedUntil || data.scheduledAt || now;
+      const interval = data.recurrenceDays * 86400000;
+      const steps = Math.max(1, Math.floor((now.valueOf() - base.valueOf()) / interval) + 1);
+      const nextAt = new Date(base.valueOf() + steps * interval);
       await tx.insert(activities).values({
         petId: data.petId,
         entryType: "REMINDER",
@@ -124,7 +138,9 @@ reminderRoutes.post("/api/reminders/:id/done", async (c) => {
         productUrl: data.productUrl,
       });
     }
+    return true;
   });
+  if (!completed) return c.json({ error: "รายการนี้ทำเสร็จแล้ว" }, 409);
   return c.json({ message: "บันทึกประวัติและอัปเดตกำหนดการแล้ว" });
 });
 
@@ -133,10 +149,11 @@ reminderRoutes.post("/api/reminders/:id/snooze", async (c) => {
   if (!user) return unauthorized(c);
   const id = Number(c.req.param("id"));
   const body = await c.req.json<Record<string, unknown>>();
-  const scheduledAt = asDate(body.scheduledAt);
+  const scheduledAt = reminderDate(body.scheduledAt);
   if (!scheduledAt) return c.json({ error: "กรุณาเลือกเวลาใหม่" }, 400);
+  if (scheduledAt.valueOf() <= Date.now()) return c.json({ error: 'ไม่สามารถเลื่อนการแจ้งเตือนไปยังวัน/เวลาที่ผ่านไปแล้วได้' }, 400);
   const [reminder] = await db
-    .select({ id: activities.id })
+    .select({ id: activities.id, status: activities.status })
     .from(activities)
     .innerJoin(pets, eq(activities.petId, pets.petId))
     .where(
@@ -147,6 +164,7 @@ reminderRoutes.post("/api/reminders/:id/snooze", async (c) => {
       ),
     );
   if (!reminder) return c.json({ error: "ไม่พบการแจ้งเตือน" }, 404);
+  if (reminder.status !== "PENDING") return c.json({ error: "รายการนี้สิ้นสุดแล้ว" }, 409);
   await db
     .update(activities)
     .set({
@@ -164,7 +182,7 @@ reminderRoutes.patch("/api/reminders/:id", async (c) => {
   if (!user) return unauthorized(c);
   const id = Number(c.req.param("id"));
   const [existing] = await db
-    .select({ id: activities.id })
+    .select({ id: activities.id, status: activities.status })
     .from(activities)
     .innerJoin(pets, eq(activities.petId, pets.petId))
     .where(
@@ -175,7 +193,11 @@ reminderRoutes.patch("/api/reminders/:id", async (c) => {
       ),
     );
   if (!existing) return c.json({ error: "ไม่พบการแจ้งเตือน" }, 404);
+  if (existing.status !== "PENDING") return c.json({ error: "รายการนี้สิ้นสุดแล้ว" }, 409);
   const body = await c.req.json<Record<string, unknown>>();
+  const validationError = validateReminder(body, true);
+  if (validationError) return c.json({ error: validationError }, 400);
+  if (body.petId !== undefined && !(await ownedPet(user.id, Number(body.petId)))) return c.json({ error: 'ไม่พบสัตว์เลี้ยง' }, 404);
   const type = asText(body.type),
     title = asText(body.title),
     scheduledAt =
@@ -189,6 +211,7 @@ reminderRoutes.patch("/api/reminders/:id", async (c) => {
   const values: Partial<typeof activities.$inferInsert> = {
     updatedAt: new Date(),
   };
+  if (body.petId !== undefined) values.petId = Number(body.petId);
   if (type) values.activityType = type;
   if (title) values.title = title;
   if (body.description !== undefined)
@@ -196,6 +219,7 @@ reminderRoutes.patch("/api/reminders/:id", async (c) => {
   if (scheduledAt) {
     values.scheduledAt = scheduledAt;
     values.activityDate = dateOnly(scheduledAt);
+    values.snoozedUntil = null;
   }
   if (body.reminderMinutes !== undefined)
     values.reminderMinutes =
@@ -222,7 +246,7 @@ reminderRoutes.delete("/api/reminders/:id", async (c) => {
   if (!user) return unauthorized(c);
   const id = Number(c.req.param("id"));
   const [record] = await db
-    .select({ id: activities.id })
+    .select({ id: activities.id, status: activities.status })
     .from(activities)
     .innerJoin(pets, eq(activities.petId, pets.petId))
     .where(

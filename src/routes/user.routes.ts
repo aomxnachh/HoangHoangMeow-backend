@@ -27,6 +27,7 @@ userRoutes.patch("/api/me", async (c) => {
   const user = await requireUser(c);
   if (!user) return unauthorized(c);
   const body = await c.req.json<Record<string, unknown>>();
+  if ((body.username !== undefined && (!asText(body.username) || asText(body.username).length > 100)) || asText(body.phone).length > 30) return c.json({ error: "ชื่อหรือเบอร์โทรไม่ถูกต้อง" }, 400);
   const username = asText(body.username) || user.username;
   const phone = asText(body.phone) || null;
   const [updated] = await db
@@ -43,7 +44,7 @@ userRoutes.post("/api/me/change-password", async (c) => {
   const body = await c.req.json<Record<string, unknown>>();
   const currentPassword = asText(body.currentPassword);
   const newPassword = asText(body.newPassword);
-  if (!currentPassword || newPassword.length < 8)
+  if (!currentPassword || newPassword.length < 8 || newPassword.length > 1024)
     return c.json(
       { error: "กรอกรหัสผ่านปัจจุบันและรหัสผ่านใหม่อย่างน้อย 8 ตัวอักษร" },
       400,

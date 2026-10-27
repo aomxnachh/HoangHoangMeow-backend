@@ -26,6 +26,7 @@ export function signToken(user: User) {
 }
 
 export function verifyToken(token: string): number | null {
+  if (!/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(token) || token.length > 2048) return null;
   const [payload, signature] = token.split(".");
   if (!payload || !signature) return null;
   const expected = createHmac("sha256", AUTH_SECRET)
@@ -40,7 +41,7 @@ export function verifyToken(token: string): number | null {
     const decoded = JSON.parse(
       Buffer.from(payload, "base64url").toString(),
     ) as { sub?: number; exp?: number };
-    return typeof decoded.sub === "number" &&
+    return typeof decoded.sub === "number" && Number.isSafeInteger(decoded.sub) && decoded.sub > 0 &&
       typeof decoded.exp === "number" &&
       decoded.exp > Date.now() / 1000
       ? decoded.sub
@@ -58,7 +59,7 @@ export async function hashPassword(password: string) {
 
 export async function passwordMatches(password: string, stored: string) {
   const [salt, expected] = stored.split(":");
-  if (!salt || !expected) return false;
+  if (!salt || !expected || !/^[a-f0-9]{128}$/i.test(expected)) return false;
   const derived = (await scrypt(password, salt, 64)) as Buffer;
   const expectedHex = derived.toString("hex");
   return (

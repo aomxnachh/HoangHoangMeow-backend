@@ -59,7 +59,7 @@ authRoutes.post("/api/auth/register", async (c) => {
   const username = asText(body.username);
   const email = asText(body.email).toLowerCase();
   const password = asText(body.password);
-  if (!username || !/^\S+@\S+\.\S+$/.test(email) || password.length < 8)
+  if (!username || username.length > 100 || email.length > 255 || asText(body.phone).length > 30 || !/^\S+@\S+\.\S+$/.test(email) || password.length < 8 || password.length > 1024)
     return c.json(
       { error: "กรอกชื่อ อีเมล และรหัสผ่านอย่างน้อย 8 ตัวอักษรให้ครบถ้วน" },
       400,
@@ -78,7 +78,9 @@ authRoutes.post("/api/auth/register", async (c) => {
       phone: asText(body.phone) || null,
       authProvider: "EMAIL",
     })
+    .onConflictDoNothing({ target: users.email })
     .returning();
+  if (!user) return c.json({ error: "อีเมลนี้ถูกใช้งานแล้ว" }, 409);
   return c.json({ token: signToken(user), user: publicUser(user) }, 201);
 });
 
@@ -126,7 +128,7 @@ authRoutes.post("/api/auth/reset-password", async (c) => {
   const body = await c.req.json<Record<string, unknown>>();
   const token = asText(body.token);
   const password = asText(body.password);
-  if (!token || password.length < 8)
+  if (!token || password.length < 8 || password.length > 1024)
     return c.json({ error: "ลิงก์หรือรหัสผ่านไม่ถูกต้อง" }, 400);
   const [reset] = await db
     .select()

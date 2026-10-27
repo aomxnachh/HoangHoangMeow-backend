@@ -49,6 +49,6 @@ export function apiPet(row: PetRow) {
     ...row,
     image: row.avatarUrl || petEmoji(row.species),
     age: ageFromBirthdate(row.birthdate),
-    status: "ปกติ",
+    status: "บันทึกข้อมูลแล้ว",
   };
 }

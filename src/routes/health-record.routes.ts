@@ -10,6 +10,8 @@ import {
 } from "../middleware/auth.js";
 import { asText, isDateString, toNumber } from "../utils/helpers.js";
 
+import { validateHealth } from "../utils/validation.js";
+
 export const healthRecordRoutes = new Hono<AppEnv>();
 
 healthRecordRoutes.get("/api/health-records", async (c) => {
@@ -38,7 +40,7 @@ healthRecordRoutes.get("/api/health-records", async (c) => {
         ...(petId ? [eq(activities.petId, petId)] : []),
       ),
     )
-    .orderBy(desc(activities.activityDate));
+    .orderBy(desc(activities.activityDate), desc(activities.createdAt), desc(activities.id));
   return c.json({ records: rows });
 });
 
@@ -46,6 +48,8 @@ healthRecordRoutes.post("/api/health-records", async (c) => {
   const user = await requireUser(c);
   if (!user) return unauthorized(c);
   const body = await c.req.json<Record<string, unknown>>();
+  const validationError = validateHealth(body);
+  if (validationError) return c.json({ error: validationError }, 400);
   const petId = Number(body.petId);
   if (!(await ownedPet(user.id, petId)))
     return c.json({ error: "ไม่พบสัตว์เลี้ยง" }, 404);
@@ -110,12 +114,15 @@ healthRecordRoutes.patch("/api/health-records/:id", async (c) => {
     );
   if (!existing) return c.json({ error: "ไม่พบรายการ" }, 404);
   const body = await c.req.json<Record<string, unknown>>();
+  const validationError = validateHealth(body, true);
+  if (validationError) return c.json({ error: validationError }, 400);
   const type = asText(body.type),
     title = asText(body.title),
     activityDate = asText(body.date);
   const values: Partial<typeof activities.$inferInsert> = {
     updatedAt: new Date(),
   };
+  if (body.petId !== undefined) values.petId = Number(body.petId);
   if (type) values.activityType = type;
   if (title) values.title = title;
   if (body.description !== undefined)
